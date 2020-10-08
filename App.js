@@ -1,39 +1,120 @@
 // Import-Anweisungen
 import React, { Component } from "react";
-import { Button, StyleSheet, View, Platform, SafeAreaView } from "react-native";
+import {
+  Button,
+  StyleSheet,
+  Text,
+  View,
+  Platform,
+  SafeAreaView,
+  Alert,
+} from "react-native";
 // APIs und Komponenten
 // eigene Komponenten
 import Quote from "./js/components/Quote";
 import NewQuote from "./js/components/NewQuote";
+import * as SQLite from "expo-sqlite";
 
-const data = [
-  {
-    text:
-      "Probleme kann man niemals mit derselben Denkweise lösen, durch die sie entstanden sind.",
-    author: "Albert Einstein",
-  },
-  {
-    text:
-      "Man braucht nichts im Leben zu fürchten. man muss nur alles verstehen",
-    author: "Marie Curie",
-  },
-  { text: "Nichts ist so beständig wie der Wandel", author: "Heraklit" },
-];
+const database = SQLite.openDatabase("quotes.db");
+
+function StyledButton(props) {
+  let button = null;
+  if (props.visible)
+    button = (
+      <View style={props.style}>
+        <Button title={props.title} onPress={props.onPress} />
+      </View>
+    );
+  return button;
+}
 
 // Deklaration einer Komponente (hier als Klasse)
 export default class App extends Component {
-  state = { index: 0, showNewQuoteScreen: false, quotes: data }; // Initialer Zustand
+  // Initialer Zustand
+  state = {
+    index: 0,
+    showNewQuoteScreen: false,
+    quotes: [],
+  };
+
+  _retrieveData() {
+    database.transaction((transaction) =>
+      transaction.executeSql("SELECT * FROM quotes", [], (_, result) =>
+        this.setState({ quotes: result.rows._array })
+      )
+    );
+  }
+
+  _saveQuoteToDB(text, author) {
+    // INSERT into quotes
+    database.transaction((transaction) =>
+      transaction.executeSql(
+        "INSERT INTO quotes (text, author) VALUES (?,?)",
+        [text, author],
+        (_, result) => (quotes[quotes.length - 1].id = result.insertId)
+      )
+    );
+  }
+
+  _removeQuoteFromDB() {
+    database.transaction((transaction) =>
+      transaction.executeSql("DELETE FROM quotes WHERE id = ?", [id])
+    );
+  }
 
   _addQuote = (text, author) => {
-    // aktuelle Liste der Zitate einer Variablen zu
     let { quotes } = this.state;
-    // Füge neue Zitate an das Ende der Liste an
     if (text && author) {
       quotes.push({ text, author });
+      this._saveQuoteToDB(text, author, quotes);
     }
-    // Aktualisiere Liste der Zitate im State
-    this.setState({ showNewQuoteScreen: false, quotes: quotes });
+    this.setState({
+      index: quotes.length - 1,
+      showNewQuoteScreen: false,
+      quotes,
+    });
   };
+
+  _deleteButton() {
+    Alert.alert(
+      "Zitate löschen?",
+      "Dies kann nicht rückgängig gemacht werden.",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Löschen",
+          style: "destructive",
+          onPress: () => this._deleteQuote(),
+        },
+      ]
+    );
+  }
+
+  _deleteQuote() {
+    let { index, quotes } = this.state;
+    //Lösche das Zitat aus dem Array
+    quotes.splice(index, 1);
+    // aus dem Speicher löschen
+    this._removeQuoteFromDB(quotes[index].id);
+    //Angezeigt Liste aktualisieren und bei 0 anfangen
+    this.setState({ index: 0, quotes });
+  }
+
+  _displayNextQuote() {
+    let { index, quotes } = this.state;
+    let nextIndex = index + 1;
+    if (nextIndex === quotes.length) nextIndex = 0;
+    this.setState({ index: nextIndex });
+  }
+
+  componentDidMount() {
+    database.transaction((transaction) =>
+      transaction.executeSql(
+        "CREATE TABLE IF NOT EXISTS quotes (id INTEGER PRIMARY KEY NOT NULL, text TEXT, author AUTHOR)"
+      )
+    );
+    this._retrieveData();
+  }
 
   // render: Darstellung der Komponente im UI
   // render wird automatisch ausgeführt:
@@ -43,27 +124,35 @@ export default class App extends Component {
   render() {
     let { index, quotes } = this.state;
     const quote = quotes[index];
-    let nextIndex = index + 1;
-    if (nextIndex === quotes.length) nextIndex = 0;
+    let content = <Text> Kein Zitat</Text>;
+    if (quote) {
+      content = <Quote text={quote.text} author={quote.author} />;
+    }
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.newButton}>
-          <Button
-            title="+"
-            onPress={() => this.setState({ showNewQuoteScreen: true })}
-          />
-        </View>
+        <StyledButton
+          style={styles.deleteButton}
+          visible={quotes.length >= 1}
+          title="Löschen"
+          onPress={() => this._deleteButton()}
+        />
+        <StyledButton
+          style={styles.newButton}
+          visible={true}
+          title="+"
+          onPress={() => this.setState({ showNewQuoteScreen: true })}
+        />
         <NewQuote
           visible={this.state.showNewQuoteScreen}
           onSave={this._addQuote}
         />
-        <Quote text={quote.text} author={quote.author} />
-        <View style={styles.nextButton}>
-          <Button
-            title="Nächstes Zitat"
-            onPress={() => this.setState({ index: nextIndex })}
-          />
-        </View>
+        {content}
+        <StyledButton
+          style={styles.nextButton}
+          visible={quotes.length >= 2}
+          title="Nachstes Zitat"
+          onPress={() => this._displayNextQuote()}
+        />
       </SafeAreaView>
     );
   }
@@ -85,6 +174,11 @@ const styles = StyleSheet.create({
   newButton: {
     position: "absolute",
     right: 10,
+    top: 10,
+  },
+  deleteButton: {
+    position: "absolute",
+    left: 10,
     top: 10,
   },
 });
